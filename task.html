@@ -83,13 +83,35 @@ async function decLink1(e,code){const enc=new TextEncoder(),km=await crypto.subt
 function linksHtml(D){const L=Array.isArray(D.l)?D.l.slice(0,8):[];if(!L.length)return '';
   const pub=L.filter(l=>l&&l.u).map(l=>lkBtn(l.t,l.u)).join(''),prv=L.filter(l=>l&&l.e);
   return `<div class="card"><b>קישורים</b>${pub}<div id="pv">${prv.length?`<div class="lk lock"><span class="ic">🔒</span><span class="tx"><b>${prv.length} קישורים פרטיים</b><small style="direction:rtl;text-align:right">נפתחים עם קוד מהמנהל</small></span></div><div class="row"><input id="pcd" placeholder="הקלד או הדבק את הקוד" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false"></div><div id="pms" class="note">הקישורים נפתחים אוטומטית כשהקוד נכון</div>`:''}</div></div>`}
-function bindLinks(D){const inp=$('#pcd');if(!inp)return;const prv=D.l.filter(l=>l&&l.e);let tm=null,busy=false;
-  const attempt=async()=>{const c=inp.value;if(norm(c).length<4||busy)return;busy=true;let out='',n=0;
-    for(const l of prv){try{out+=lkBtn(l.t,await decLink(l.e,c));n++}catch(e){}}busy=false;
-    if(n&&inp.isConnected&&inp.value===c){$('#pv').innerHTML=out+(n<prv.length?'<div class="note">חלק מהקישורים לא נפתחו</div>':'')}
-    else if(inp.isConnected&&norm(inp.value).length>=8)$('#pms').innerHTML='<span class="bad">הקוד לא תואם. בדוק שהעתקת אותו במלואו</span>'};
-  inp.addEventListener('input',()=>{clearTimeout(tm);$('#pms').textContent='';tm=setTimeout(attempt,350)});
-  inp.addEventListener('paste',()=>{clearTimeout(tm);tm=setTimeout(attempt,50)})}
+const LADDER=[1,3,5,10,30,240,480,720,1440,2880]; /* minutes: 1,3,5,10,30 min then 4,8,12,24,48 hours */
+function hs(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36)}
+function fmtT(ms){const s=Math.ceil(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60,p=n=>String(n).padStart(2,'0');return (h?h+':':'')+p(m)+':'+p(r)}
+function guard(D){const key='cclk:'+hs(JSON.stringify([D.t,D.h||'',(D.l||[]).length]));
+  let st={f:0,u:0,log:[]};try{const x=JSON.parse(localStorage.getItem(key));if(x&&typeof x.f==='number')st=x}catch(e){}
+  const sv=()=>{try{localStorage.setItem(key,JSON.stringify(st))}catch(e){}},subs=[];let iv=null;
+  const G={left:()=>Math.max(0,st.u-Date.now()),
+    fail(){st.f++;st.log.push(Date.now());st.log=st.log.slice(-50);let locked=false;
+      if(st.f%3===0){const step=Math.min(st.f/3-1,LADDER.length-1);st.u=Date.now()+LADDER[step]*60000;locked=true}sv();G.tick();return {f:st.f,locked}},
+    ok(){st.f=0;st.u=0;sv();G.tick()},
+    sub(fn){subs.push(fn)},
+    tick(){subs.forEach(fn=>{try{fn()}catch(e){}});if(G.left()>0&&!iv)iv=setInterval(G.tick,1000);if(G.left()<=0&&iv){clearInterval(iv);iv=null}},
+    info:()=>st};
+  return G}
+function reportHtml(D,G){if(!(D.wa||D.em||D.tg))return '';const t=encodeURIComponent(`דיווח: ${G.info().f} ניסיונות קוד שגויים על המשימה "${D.t}" (${new Date().toLocaleString('he-IL')})`);
+  return `<div class="row">${D.wa?`<a href="https://wa.me/${esc(D.wa)}?text=${t}"><button type="button" class="s">דווח למנהל בוואטסאפ</button></a>`:''}${D.em?`<a href="mailto:${esc(D.em)}?subject=${encodeURIComponent('ניסיונות קוד שגויים')}&body=${t}"><button type="button" class="s">דווח במייל</button></a>`:''}</div>`}
+function attach(D,G,inp,msg,check,onOk){let t1=null,t2=null,seq=0,done=false;
+  const draw=()=>{if(!inp.isConnected)return;const r=G.left();if(r>0){inp.disabled=true;msg.innerHTML=`<span class="bad">🔒 ננעל עוד ${fmtT(r)}. הניסיונות נרשמו במכשיר.</span>`+reportHtml(D,G)}else if(inp.disabled){inp.disabled=false;msg.textContent='ניתן לנסות שוב'}};
+  G.sub(draw);draw();
+  const run=(d1,d2)=>{clearTimeout(t1);clearTimeout(t2);const cur=++seq;if(G.left()>0)return;msg.textContent='';
+    t1=setTimeout(async()=>{const c=inp.value;if(norm(c).length<4||done)return;const ok=await check(c);if(cur!==seq||done)return;if(ok){done=true;clearTimeout(t2);G.ok();onOk(c)}},d1);
+    t2=setTimeout(()=>{if(cur!==seq||done||!inp.isConnected||G.left()>0)return;if(norm(inp.value).length>=6){const r=G.fail();if(!r.locked)msg.innerHTML=`<span class="bad">הקוד לא תואם (ניסיון ${(r.f-1)%3+1} מתוך 3 לפני נעילה זמנית)</span>`}},d2)};
+  inp.addEventListener('input',()=>run(350,1400));
+  inp.addEventListener('paste',()=>run(60,700));
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')run(0,250)})}
+function bindLinks(D,G){const inp=$('#pcd');if(!inp)return;const prv=D.l.filter(l=>l&&l.e);
+  attach(D,G,inp,$('#pms'),async c=>{try{await decLink(prv[0].e,c);return true}catch(e){return false}},async c=>{let out='',n=0;
+    for(const l of prv){try{out+=lkBtn(l.t,await decLink(l.e,c));n++}catch(e){}}
+    $('#pv').innerHTML=out+(n<prv.length?'<div class="note">חלק מהקישורים לא נפתחו</div>':'')})}
 function show(D,how){document.title=D.t;
   let chips='<span class="chip ok">🌐 ציבורית</span>';
   if(D.p)chips+=`<span class="chip">עדיפות: ${PRI[D.p]||''}</span>`;
@@ -99,11 +121,11 @@ function show(D,how){document.title=D.t;
   chips+=can?'<span class="chip">💬 אפשר להשתתף באישור המנהל</span>':'<span class="chip">👁 לצפייה בלבד</span>';
   app.innerHTML=`<div class="card">${D.ev?`<div class="ev">${esc(D.ev)}</div>`:''}<h1>${esc(D.t)}</h1><div class="meta">${chips}</div>${D.n?`<div class="notes">${linkify(D.n)}</div>`:''}
   <div class="note" style="margin-top:14px">תצוגה בלבד. הדף לא שומר מידע ולא שולח אותו לשום שרת.${D.ai?' התוכן נוצר בעזרת בינה מלאכותית.':''}</div><div class="row"><button class="s" id="hb">פתח משימה אחרת</button></div></div>${linksHtml(D)}<div class="card" id="cm"></div>`;
-  bindLinks(D);
+  const G=guard(D);bindLinks(D,G);
   $('#hb').onclick=()=>{history.replaceState(null,'',location.pathname);home()};
-  gate(D)}
+  gate(D,G)}
 async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-function gate(D){const cm=$('#cm');
+function gate(D,G){const cm=$('#cm');
   const send=text=>{const e=encodeURIComponent(text);
     const wa=D.wa?`<a href="https://wa.me/${esc(D.wa)}?text=${e}"><button type="button">וואטסאפ</button></a>`:'';
     const tg=D.tg?`<a href="https://t.me/${esc(D.tg)}?text=${e}"><button type="button">טלגרם</button></a>`:'';
@@ -114,11 +136,9 @@ function gate(D){const cm=$('#cm');
   <div class="row"><input id="nm" placeholder="השם שלך" maxlength="40"></div><div class="row"><button id="rq">בקש אישור להגיב</button></div>
   <div class="row"><input id="cd" placeholder="הקלד או הדבק קוד אישור" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false"></div><div id="msg" class="note"></div>`;
   $('#rq').onclick=()=>{const nm=$('#nm').value.trim();if(!nm){$('#msg').innerHTML='<span class="bad">כתוב את שמך קודם</span>';return}send(`שלום, אני ${nm}. אשמח לקבל אישור להגיב על המשימה: ${D.t}`)};
-  let tm=null;const tryGate=async()=>{const c=$('#cd').value,nm=$('#nm').value.trim();if(norm(c).length<4)return;let ok=false;for(const k of cands(c)){if(await sha(k)===D.h){ok=true;break}}
-    if(!ok){if(norm(c).length>=8)$('#msg').innerHTML='<span class="bad">הקוד לא תואם. בדוק שהעתקת אותו במלואו</span>';return}
+  attach(D,G,$('#cd'),$('#msg'),async c=>{for(const k of cands(c)){if(await sha(k)===D.h)return true}return false},c=>{const nm=$('#nm').value.trim();
     cm.innerHTML=`<b class="ok">אושרת להגיב ✓</b><div class="row"><textarea id="tx" maxlength="1000" placeholder="התגובה שלך"></textarea></div><div class="row"><button id="sd">שלח למנהל</button></div><div id="msg"></div>`;
-    $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(t)send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}`)}};
-  $('#cd').addEventListener('input',()=>{clearTimeout(tm);$('#msg').textContent='';tm=setTimeout(tryGate,350)})}
+    $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(t)send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}`)}})}
 addEventListener('hashchange',route);route();
 })();
 </script>
