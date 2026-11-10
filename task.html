@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>משימה משותפת</title>
+<style>
+:root{color-scheme:dark light;--bg:#0f1420;--card:#192033;--tx:#f2f5fb;--mu:#b9c3d8;--ac:#7cc4ff;--ok:#7be0a4;--wn:#ffd37a;--bd:#33405c}
+@media(prefers-color-scheme:light){:root{--bg:#f3f6fb;--card:#fff;--tx:#10182b;--mu:#46526b;--ac:#0b57b7;--ok:#0b7a3e;--wn:#8a5a00;--bd:#c5cfe2}}
+*{box-sizing:border-box}body{margin:0;font:17px/1.55 system-ui,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--tx);padding:16px}
+main{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px}
+h1{font-size:22px;margin:.2em 0}.ev{color:var(--ac);font-weight:700;font-size:14px}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.chip{border:1px solid var(--bd);border-radius:999px;padding:3px 12px;font-size:14px;color:var(--mu)}
+.notes{white-space:pre-wrap;margin-top:12px}
+.note{font-size:14px;color:var(--mu)}
+button,input,textarea{font:inherit;color:var(--tx);background:transparent;border:1px solid var(--bd);border-radius:12px;padding:10px 14px;min-height:44px}
+button{cursor:pointer;background:var(--ac);color:#04101f;border-color:var(--ac);font-weight:700}button.s{background:transparent;color:var(--tx);border-color:var(--bd)}
+input,textarea{width:100%}textarea{min-height:90px}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ok{color:var(--ok)}.bad{color:var(--wn)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+(function(){
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function dec(){try{const m=location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);if(!m)return null;
+  let b=m[1].replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';
+  const o=JSON.parse(decodeURIComponent(escape(atob(b))));return o&&o.v===1&&typeof o.t==='string'?o:null}catch(e){return null}}
+const D=dec();
+if(!D){app.innerHTML='<div class="card"><h1>הקישור לא תקין</h1><div class="note">בקש מהשולח קישור חדש.</div></div>';return}
+const PRI={1:'דחוף',2:'רגיל',3:'נמוך'};
+let chips='';
+if(D.p)chips+=`<span class="chip">עדיפות: ${PRI[D.p]||''}</span>`;
+if(D.du)chips+=`<span class="chip">📅 ${esc(D.du)}</span>`;
+if(D.tu)chips+=`<span class="chip">⏱ עד ${esc(String(D.tu).replace('T',' '))}</span>`;
+app.innerHTML=`<div class="card">${D.ev?`<div class="ev">${esc(D.ev)}</div>`:''}<h1>${esc(D.t)}</h1>${chips?`<div class="meta">${chips}</div>`:''}${D.n?`<div class="notes">${esc(D.n)}</div>`:''}
+<div class="note" style="margin-top:14px">תצוגה בלבד. הדף לא שומר מידע ולא שולח אותו לשום שרת.${D.ai?' התוכן נוצר בעזרת בינה מלאכותית.':''}</div></div>
+<div class="card" id="cm"></div>`;
+const cm=$('#cm');
+const hasAdm=D.wa||D.em||D.tg;
+function ask(){
+  if(!hasAdm||!D.h){cm.innerHTML='<b>תגובות</b><div class="note">למשימה הזו לא הוגדרה אפשרות תגובה.</div>';return}
+  cm.innerHTML=`<b>רוצה להגיב?</b><div class="note">כדי להגיב נדרש אישור ממנהל האירוע. בקש אישור, וקבל ממנו קוד.</div>
+  <div class="row"><input id="nm" placeholder="השם שלך" maxlength="40"></div>
+  <div class="row"><button id="rq">בקש אישור להגיב</button></div>
+  <div class="row"><input id="cd" placeholder="קוד אישור" dir="ltr" autocomplete="off"><button class="s" id="go">פתח</button></div><div id="msg" class="note"></div>`;
+  $('#rq').onclick=()=>{const nm=$('#nm').value.trim();if(!nm){$('#msg').innerHTML='<span class="bad">כתוב את שמך קודם</span>';return}
+    send(`שלום, אני ${nm}. אשמח לקבל אישור להגיב על המשימה: ${D.t}`)};
+  $('#go').onclick=async()=>{const c=$('#cd').value.trim();const ok=c&&await sha(c)===D.h;
+    if(ok)compose($('#nm').value.trim());else $('#msg').innerHTML='<span class="bad">הקוד לא נכון</span>'};
+}
+async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+function send(text,only){const e=encodeURIComponent(text);let h='';
+  const wa=D.wa?`<a href="https://wa.me/${esc(D.wa)}?text=${e}"><button type="button">וואטסאפ</button></a>`:'';
+  const tg=D.tg?`<a href="https://t.me/${esc(D.tg)}?text=${e}"><button type="button">טלגרם</button></a>`:'';
+  const em=D.em?`<a href="mailto:${esc(D.em)}?subject=${encodeURIComponent('משימה: '+D.t)}&body=${e}"><button type="button">מייל</button></a>`:'';
+  $('#msg').innerHTML=`<div class="row">${wa}${tg}${em}</div><div class="note">בחר איך לשלוח. ההודעה נשלחת ישירות למנהל, לא נשמרת בדף.</div>`}
+function compose(nm){
+  cm.innerHTML=`<b class="ok">אושרת להגיב ✓</b><div class="row"><textarea id="tx" maxlength="1000" placeholder="התגובה שלך"></textarea></div><div class="row"><button id="sd">שלח למנהל</button></div><div id="msg"></div>`;
+  $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(!t)return;send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}\n[קוד: ${$('#tx').dataset.k||''}]`.replace(/\n\[קוד: \]$/,''))}}
+ask();
+})();
+</script>
+</body>
+</html>
