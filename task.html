@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>משימה משותפת</title>
 <style>
 :root{color-scheme:dark light;--bg:#0f1420;--card:#192033;--tx:#f2f5fb;--mu:#b9c3d8;--ac:#7cc4ff;--ok:#7be0a4;--wn:#ffd37a;--bd:#33405c}
@@ -29,42 +29,67 @@ input,textarea{width:100%}textarea{min-height:90px}.row{display:flex;gap:8px;fle
 (function(){
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function dec(){try{const m=location.hash.match(/^#d=([A-Za-z0-9_-]+)$/);if(!m)return null;
-  let b=m[1].replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';
-  const o=JSON.parse(decodeURIComponent(escape(atob(b))));return o&&o.v===1&&typeof o.t==='string'?o:null}catch(e){return null}}
-const D=dec();
-if(!D){app.innerHTML='<div class="card"><h1>הקישור לא תקין</h1><div class="note">בקש מהשולח קישור חדש.</div></div>';return}
+const okObj=o=>o&&o.v===1&&typeof o.t==='string';
+function decB64(s){let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return JSON.parse(decodeURIComponent(escape(atob(b))))}
+let cam=null;
+function stopCam(){if(cam){cam.getTracks().forEach(t=>t.stop());cam=null}}
+function home(msg){stopCam();document.title='משימה משותפת';
+  app.innerHTML=`<div class="card"><h1>פתיחת משימה</h1><div class="note">יש לך קישור או כתובת קצרה? הדבק או הקלד כאן. אפשר גם לסרוק QR.</div>
+  <div class="row"><input id="ad" dir="ltr" placeholder="קישור, או קוד קצר כמו ab12cd" autocapitalize="off" autocomplete="off"></div>
+  <div class="row"><button id="op">פתח</button><button class="s" id="sc">📷 סרוק QR</button></div>
+  <div id="hm" class="note">${msg?'<span class="bad">'+esc(msg)+'</span>':''}</div><video id="vd" playsinline muted style="display:none;width:100%;border-radius:12px;margin-top:10px"></video></div>`;
+  $('#op').onclick=()=>openAny($('#ad').value.trim());
+  $('#ad').onkeydown=e=>{if(e.key==='Enter')openAny($('#ad').value.trim())};
+  $('#sc').onclick=scan}
+function openAny(v){if(!v)return;
+  let m=v.match(/#(d|c)=([A-Za-z0-9_-]+)/);
+  if(m){try{const u=new URL(v);if(u.origin!==location.origin){location.href=v;return}}catch(e){}
+    location.hash=m[1]+'='+m[2];route();return}
+  const c=v.replace(/[^A-Za-z0-9_-]/g,'').slice(0,40);
+  if(c.length<3){$('#hm').innerHTML='<span class="bad">כתובת לא תקינה</span>';return}
+  location.hash='c='+c;route()}
+async function scan(){const hm=$('#hm');
+  if(!('BarcodeDetector' in window)||!navigator.mediaDevices){hm.innerHTML='<span class="bad">הסריקה בתוך הדף לא נתמכת בדפדפן הזה. סרוק עם מצלמת הטלפון, והקישור יפתח כאן.</span>';return}
+  try{cam=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});}catch(e){hm.innerHTML='<span class="bad">אין הרשאה למצלמה</span>';return}
+  const v=$('#vd');v.style.display='block';v.srcObject=cam;await v.play();hm.textContent='כוון את המצלמה אל קוד ה-QR';
+  const det=new BarcodeDetector({formats:['qr_code']});
+  const tick=async()=>{if(!cam)return;try{const r=await det.detect(v);if(r.length){const t=r[0].rawValue;stopCam();v.style.display='none';
+      if(/#(d|c)=/.test(t)||/^[A-Za-z0-9_-]{3,40}$/.test(t)){openAny(t);return}hm.innerHTML='<span class="bad">ה-QR אינו קישור למשימה</span>';return}}catch(e){}
+    requestAnimationFrame(tick)};tick()}
+async function route(){stopCam();const hs=location.hash;let m;
+  if(m=hs.match(/^#d=([A-Za-z0-9_-]+)$/)){let D=null;try{D=decB64(m[1])}catch(e){}if(okObj(D))return show(D,'link');return home('הקישור לא תקין')}
+  if(m=hs.match(/^#c=([A-Za-z0-9_-]{3,40})$/)){app.innerHTML='<div class="card"><div class="note">⏳ בודק את הכתובת...</div></div>';
+    try{const r=await fetch('t/'+m[1].toLowerCase()+'.json',{cache:'no-store',credentials:'omit'});if(!r.ok)throw 0;const D=await r.json();if(okObj(D))return show(D,'code')}catch(e){}
+    return home('לא נמצאה משימה ציבורית בכתובת הזו')}
+  home()}
 const PRI={1:'דחוף',2:'רגיל',3:'נמוך'};
-let chips='';
-if(D.p)chips+=`<span class="chip">עדיפות: ${PRI[D.p]||''}</span>`;
-if(D.du)chips+=`<span class="chip">📅 ${esc(D.du)}</span>`;
-if(D.tu)chips+=`<span class="chip">⏱ עד ${esc(String(D.tu).replace('T',' '))}</span>`;
-app.innerHTML=`<div class="card">${D.ev?`<div class="ev">${esc(D.ev)}</div>`:''}<h1>${esc(D.t)}</h1>${chips?`<div class="meta">${chips}</div>`:''}${D.n?`<div class="notes">${esc(D.n)}</div>`:''}
-<div class="note" style="margin-top:14px">תצוגה בלבד. הדף לא שומר מידע ולא שולח אותו לשום שרת.${D.ai?' התוכן נוצר בעזרת בינה מלאכותית.':''}</div></div>
-<div class="card" id="cm"></div>`;
-const cm=$('#cm');
-const hasAdm=D.wa||D.em||D.tg;
-function ask(){
-  if(!hasAdm||!D.h){cm.innerHTML='<b>תגובות</b><div class="note">למשימה הזו לא הוגדרה אפשרות תגובה.</div>';return}
-  cm.innerHTML=`<b>רוצה להגיב?</b><div class="note">כדי להגיב נדרש אישור ממנהל האירוע. בקש אישור, וקבל ממנו קוד.</div>
-  <div class="row"><input id="nm" placeholder="השם שלך" maxlength="40"></div>
-  <div class="row"><button id="rq">בקש אישור להגיב</button></div>
-  <div class="row"><input id="cd" placeholder="קוד אישור" dir="ltr" autocomplete="off"><button class="s" id="go">פתח</button></div><div id="msg" class="note"></div>`;
-  $('#rq').onclick=()=>{const nm=$('#nm').value.trim();if(!nm){$('#msg').innerHTML='<span class="bad">כתוב את שמך קודם</span>';return}
-    send(`שלום, אני ${nm}. אשמח לקבל אישור להגיב על המשימה: ${D.t}`)};
-  $('#go').onclick=async()=>{const c=$('#cd').value.trim();const ok=c&&await sha(c)===D.h;
-    if(ok)compose($('#nm').value.trim());else $('#msg').innerHTML='<span class="bad">הקוד לא נכון</span>'};
-}
+function show(D,how){document.title=D.t;
+  let chips='<span class="chip ok">🌐 ציבורית</span>';
+  if(D.p)chips+=`<span class="chip">עדיפות: ${PRI[D.p]||''}</span>`;
+  if(D.du)chips+=`<span class="chip">📅 ${esc(D.du)}</span>`;
+  if(D.tu)chips+=`<span class="chip">⏱ עד ${esc(String(D.tu).replace('T',' '))}</span>`;
+  const can=(D.wa||D.em||D.tg)&&D.h;
+  chips+=can?'<span class="chip">💬 אפשר להשתתף באישור המנהל</span>':'<span class="chip">👁 לצפייה בלבד</span>';
+  app.innerHTML=`<div class="card">${D.ev?`<div class="ev">${esc(D.ev)}</div>`:''}<h1>${esc(D.t)}</h1><div class="meta">${chips}</div>${D.n?`<div class="notes">${esc(D.n)}</div>`:''}
+  <div class="note" style="margin-top:14px">תצוגה בלבד. הדף לא שומר מידע ולא שולח אותו לשום שרת.${D.ai?' התוכן נוצר בעזרת בינה מלאכותית.':''}</div><div class="row"><button class="s" id="hb">פתח משימה אחרת</button></div></div><div class="card" id="cm"></div>`;
+  $('#hb').onclick=()=>{history.replaceState(null,'',location.pathname);home()};
+  gate(D)}
 async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-function send(text,only){const e=encodeURIComponent(text);let h='';
-  const wa=D.wa?`<a href="https://wa.me/${esc(D.wa)}?text=${e}"><button type="button">וואטסאפ</button></a>`:'';
-  const tg=D.tg?`<a href="https://t.me/${esc(D.tg)}?text=${e}"><button type="button">טלגרם</button></a>`:'';
-  const em=D.em?`<a href="mailto:${esc(D.em)}?subject=${encodeURIComponent('משימה: '+D.t)}&body=${e}"><button type="button">מייל</button></a>`:'';
-  $('#msg').innerHTML=`<div class="row">${wa}${tg}${em}</div><div class="note">בחר איך לשלוח. ההודעה נשלחת ישירות למנהל, לא נשמרת בדף.</div>`}
-function compose(nm){
-  cm.innerHTML=`<b class="ok">אושרת להגיב ✓</b><div class="row"><textarea id="tx" maxlength="1000" placeholder="התגובה שלך"></textarea></div><div class="row"><button id="sd">שלח למנהל</button></div><div id="msg"></div>`;
-  $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(!t)return;send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}\n[קוד: ${$('#tx').dataset.k||''}]`.replace(/\n\[קוד: \]$/,''))}}
-ask();
+function gate(D){const cm=$('#cm');
+  const send=text=>{const e=encodeURIComponent(text);
+    const wa=D.wa?`<a href="https://wa.me/${esc(D.wa)}?text=${e}"><button type="button">וואטסאפ</button></a>`:'';
+    const tg=D.tg?`<a href="https://t.me/${esc(D.tg)}?text=${e}"><button type="button">טלגרם</button></a>`:'';
+    const em=D.em?`<a href="mailto:${esc(D.em)}?subject=${encodeURIComponent('משימה: '+D.t)}&body=${e}"><button type="button">מייל</button></a>`:'';
+    $('#msg').innerHTML=`<div class="row">${wa}${tg}${em}</div><div class="note">בחר איך לשלוח. ההודעה נשלחת ישירות למנהל, לא נשמרת בדף.</div>`};
+  if(!((D.wa||D.em||D.tg)&&D.h)){cm.innerHTML='<b>תגובות</b><div class="note">למשימה הזו לא הוגדרה אפשרות תגובה.</div>';return}
+  cm.innerHTML=`<b>רוצה להשתתף?</b><div class="note">כדי להגיב נדרש אישור ממנהל האירוע. בקש אישור, וקבל ממנו קוד.</div>
+  <div class="row"><input id="nm" placeholder="השם שלך" maxlength="40"></div><div class="row"><button id="rq">בקש אישור להגיב</button></div>
+  <div class="row"><input id="cd" placeholder="קוד אישור" dir="ltr" autocomplete="off"><button class="s" id="go">פתח</button></div><div id="msg" class="note"></div>`;
+  $('#rq').onclick=()=>{const nm=$('#nm').value.trim();if(!nm){$('#msg').innerHTML='<span class="bad">כתוב את שמך קודם</span>';return}send(`שלום, אני ${nm}. אשמח לקבל אישור להגיב על המשימה: ${D.t}`)};
+  $('#go').onclick=async()=>{const c=$('#cd').value.trim(),nm=$('#nm').value.trim();if(!(c&&await sha(c)===D.h)){$('#msg').innerHTML='<span class="bad">הקוד לא נכון</span>';return}
+    cm.innerHTML=`<b class="ok">אושרת להגיב ✓</b><div class="row"><textarea id="tx" maxlength="1000" placeholder="התגובה שלך"></textarea></div><div class="row"><button id="sd">שלח למנהל</button></div><div id="msg"></div>`;
+    $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(t)send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}`)}}}
+addEventListener('hashchange',route);route();
 })();
 </script>
 </body>
