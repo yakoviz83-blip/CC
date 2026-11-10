@@ -74,17 +74,22 @@ function linkify(t){return String(t).split(URLRE).map((s,i)=>{if(i%2===0)return 
 function icon(u){const h=new URL(u).hostname;return /youtu/.test(h)?'▶️':/drive\.google|docs\.google/.test(h)?'📄':/wa\.me|whatsapp/.test(h)?'💬':/t\.me|telegram/.test(h)?'✈️':/zoom|meet\.google/.test(h)?'🎥':'🔗'}
 function lkBtn(t,u){const ok=safeUrl(u);if(!ok)return '';const x=new URL(ok);return `<a class="lk" href="${esc(ok)}" target="_blank" rel="noopener noreferrer"><span class="ic">${icon(ok)}</span><span class="tx"><b>${esc(t||x.hostname)}</b><small>${esc(x.hostname+(x.pathname.length>1?x.pathname:''))}</small></span><span>↗</span></a>`}
 const b64d=s=>{let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return Uint8Array.from(atob(b),c=>c.charCodeAt(0))};
-async function decLink(e,code){const enc=new TextEncoder(),km=await crypto.subtle.importKey('raw',enc.encode(code.toUpperCase()),'PBKDF2',false,['deriveKey']);
+const norm=c=>String(c).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+const cands=c=>[...new Set([norm(c),String(c).trim().toUpperCase()])].filter(Boolean);
+async function decLink(e,code){for(const k of cands(code)){try{return await decLink1(e,k)}catch(x){}}throw 0}
+async function decLink1(e,code){const enc=new TextEncoder(),km=await crypto.subtle.importKey('raw',enc.encode(code.toUpperCase()),'PBKDF2',false,['deriveKey']);
   const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64d(e.s),iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
   return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(e.i)},key,b64d(e.c)))}
 function linksHtml(D){const L=Array.isArray(D.l)?D.l.slice(0,8):[];if(!L.length)return '';
   const pub=L.filter(l=>l&&l.u).map(l=>lkBtn(l.t,l.u)).join(''),prv=L.filter(l=>l&&l.e);
-  return `<div class="card"><b>קישורים</b>${pub}<div id="pv">${prv.length?`<div class="lk lock"><span class="ic">🔒</span><span class="tx"><b>${prv.length} קישורים פרטיים</b><small style="direction:rtl;text-align:right">נפתחים עם קוד מהמנהל</small></span></div><div class="row"><input id="pcd" placeholder="קוד" dir="ltr" autocomplete="off" autocapitalize="characters"><button id="pgo" class="s">פתח</button></div><div id="pms" class="note"></div>`:''}</div></div>`}
-function bindLinks(D){const b=$('#pgo');if(!b)return;const prv=D.l.filter(l=>l&&l.e);
-  b.onclick=async()=>{const c=$('#pcd').value.trim();if(!c)return;let out='',n=0;
-    for(const l of prv){try{const u=await decLink(l.e,c);out+=lkBtn(l.t,u);n++}catch(e){}}
-    if(n){$('#pv').innerHTML=out+(n<prv.length?'<div class="note">חלק מהקישורים לא נפתחו</div>':'')}else $('#pms').innerHTML='<span class="bad">הקוד לא נכון</span>'};
-  $('#pcd').onkeydown=e=>{if(e.key==='Enter')b.onclick()}}
+  return `<div class="card"><b>קישורים</b>${pub}<div id="pv">${prv.length?`<div class="lk lock"><span class="ic">🔒</span><span class="tx"><b>${prv.length} קישורים פרטיים</b><small style="direction:rtl;text-align:right">נפתחים עם קוד מהמנהל</small></span></div><div class="row"><input id="pcd" placeholder="הקלד או הדבק את הקוד" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false"></div><div id="pms" class="note">הקישורים נפתחים אוטומטית כשהקוד נכון</div>`:''}</div></div>`}
+function bindLinks(D){const inp=$('#pcd');if(!inp)return;const prv=D.l.filter(l=>l&&l.e);let tm=null,busy=false;
+  const attempt=async()=>{const c=inp.value;if(norm(c).length<4||busy)return;busy=true;let out='',n=0;
+    for(const l of prv){try{out+=lkBtn(l.t,await decLink(l.e,c));n++}catch(e){}}busy=false;
+    if(n&&inp.isConnected&&inp.value===c){$('#pv').innerHTML=out+(n<prv.length?'<div class="note">חלק מהקישורים לא נפתחו</div>':'')}
+    else if(inp.isConnected&&norm(inp.value).length>=8)$('#pms').innerHTML='<span class="bad">הקוד לא תואם. בדוק שהעתקת אותו במלואו</span>'};
+  inp.addEventListener('input',()=>{clearTimeout(tm);$('#pms').textContent='';tm=setTimeout(attempt,350)});
+  inp.addEventListener('paste',()=>{clearTimeout(tm);tm=setTimeout(attempt,50)})}
 function show(D,how){document.title=D.t;
   let chips='<span class="chip ok">🌐 ציבורית</span>';
   if(D.p)chips+=`<span class="chip">עדיפות: ${PRI[D.p]||''}</span>`;
@@ -107,11 +112,13 @@ function gate(D){const cm=$('#cm');
   if(!((D.wa||D.em||D.tg)&&D.h)){cm.innerHTML='<b>תגובות</b><div class="note">למשימה הזו לא הוגדרה אפשרות תגובה.</div>';return}
   cm.innerHTML=`<b>רוצה להשתתף?</b><div class="note">כדי להגיב נדרש אישור ממנהל האירוע. בקש אישור, וקבל ממנו קוד.</div>
   <div class="row"><input id="nm" placeholder="השם שלך" maxlength="40"></div><div class="row"><button id="rq">בקש אישור להגיב</button></div>
-  <div class="row"><input id="cd" placeholder="קוד אישור" dir="ltr" autocomplete="off"><button class="s" id="go">פתח</button></div><div id="msg" class="note"></div>`;
+  <div class="row"><input id="cd" placeholder="הקלד או הדבק קוד אישור" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false"></div><div id="msg" class="note"></div>`;
   $('#rq').onclick=()=>{const nm=$('#nm').value.trim();if(!nm){$('#msg').innerHTML='<span class="bad">כתוב את שמך קודם</span>';return}send(`שלום, אני ${nm}. אשמח לקבל אישור להגיב על המשימה: ${D.t}`)};
-  $('#go').onclick=async()=>{const c=$('#cd').value.trim(),nm=$('#nm').value.trim();if(!(c&&await sha(c.toUpperCase())===D.h)){$('#msg').innerHTML='<span class="bad">הקוד לא נכון</span>';return}
+  let tm=null;const tryGate=async()=>{const c=$('#cd').value,nm=$('#nm').value.trim();if(norm(c).length<4)return;let ok=false;for(const k of cands(c)){if(await sha(k)===D.h){ok=true;break}}
+    if(!ok){if(norm(c).length>=8)$('#msg').innerHTML='<span class="bad">הקוד לא תואם. בדוק שהעתקת אותו במלואו</span>';return}
     cm.innerHTML=`<b class="ok">אושרת להגיב ✓</b><div class="row"><textarea id="tx" maxlength="1000" placeholder="התגובה שלך"></textarea></div><div class="row"><button id="sd">שלח למנהל</button></div><div id="msg"></div>`;
-    $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(t)send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}`)}}}
+    $('#sd').onclick=()=>{const t=$('#tx').value.trim();if(t)send(`תגובה על "${D.t}"${nm?' מאת '+nm:''}:\n${t}`)}};
+  $('#cd').addEventListener('input',()=>{clearTimeout(tm);$('#msg').textContent='';tm=setTimeout(tryGate,350)})}
 addEventListener('hashchange',route);route();
 })();
 </script>
