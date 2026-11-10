@@ -75,7 +75,7 @@ function icon(u){const h=new URL(u).hostname;return /youtu/.test(h)?'▶️':/dr
 function lkBtn(t,u){const ok=safeUrl(u);if(!ok)return '';const x=new URL(ok);return `<a class="lk" href="${esc(ok)}" target="_blank" rel="noopener noreferrer"><span class="ic">${icon(ok)}</span><span class="tx"><b>${esc(t||x.hostname)}</b><small>${esc(x.hostname+(x.pathname.length>1?x.pathname:''))}</small></span><span>↗</span></a>`}
 const b64d=s=>{let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return Uint8Array.from(atob(b),c=>c.charCodeAt(0))};
 const norm=c=>String(c).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
-const cands=c=>[...new Set([norm(c),String(c).trim().toUpperCase()])].filter(Boolean);
+const cands=c=>{const n=norm(c),o=[n,String(c).trim().toUpperCase()];for(const k of [3,4,5])if(n.length>k+1)o.push(n.slice(0,k)+'-'+n.slice(k));return [...new Set(o)].filter(Boolean)};
 async function decLink(e,code){for(const k of cands(code)){try{return await decLink1(e,k)}catch(x){}}throw 0}
 async function decLink1(e,code){const enc=new TextEncoder(),km=await crypto.subtle.importKey('raw',enc.encode(code.toUpperCase()),'PBKDF2',false,['deriveKey']);
   const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64d(e.s),iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
